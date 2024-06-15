@@ -21,7 +21,10 @@ fn main() {
 
     for i in 0..niterations {
         distmesh.update(DELTA_T);
-        println!("step {}, quality: {}", (i+1), quality(&distmesh.points, &distmesh.triangulation.triangles));
+        println!("step {}, quality: {}", (i+1), quality(
+          &distmesh.points, 
+          &distmesh.triangulation.triangles)
+        );
     }
 }
 ```
