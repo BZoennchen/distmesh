@@ -8,18 +8,22 @@ A port of [``DistMesh``](http://persson.berkeley.edu/distmesh/) by Persson and S
 ## Example
 
 ```rust
-use delaunator::{Point, triangulate};
+use distmesh::prelude::*;
 
-let points = vec![
-    Point { x: 0., y: 0. },
-    Point { x: 1., y: 0. },
-    Point { x: 1., y: 1. },
-    Point { x: 0., y: 1. },
-];
+fn main() {
+    let npoints = 300;
+    let niterations = 3000;
 
-let result = triangulate(&points);
+    println!("build distmesh");
+    let builder = DistMeshBuilder::new(npoints).x1(-400.0).x2(400.0).y1(-400.0).y2(400.0);
+    let mut distmesh = builder.build();
+    println!("finish building distmesh");
 
-println!("{:?}", result.triangles); // [0, 2, 1, 0, 3, 2]
+    for i in 0..niterations {
+        distmesh.update(DELTA_T);
+        println!("step {}, quality: {}", (i+1), quality(&distmesh.points, &distmesh.triangulation.triangles));
+    }
+}
 ```
 
 ## Performance
