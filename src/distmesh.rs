@@ -106,6 +106,7 @@ impl DistMeshBuilder {
       edge_len_fn: self.edge_len_fn.expect("expect valid edge length function"), 
       dist_fn: dist_fn,
       fixpoints: fixpoints,
+      update_counter: 0,
     }
   }
 }
@@ -116,6 +117,7 @@ pub struct DistMesh {
   edge_len_fn: EdgeLenFn,
   dist_fn: Box<dyn SignedDistanceFunction>,
   fixpoints: Vec<bool>,
+  update_counter: usize,
 }
 
 impl DistMesh {
@@ -124,7 +126,7 @@ impl DistMesh {
     let points: Vec<Point> = distribute_points(npoints, &bouding_box, &dist_fn);
     let edge_len_fn = |_: &Point| {1.0};
     let triangulation = triangulate(&points);
-    DistMesh{ points: points, triangulation, edge_len_fn, dist_fn, fixpoints: Vec::new()}
+    DistMesh{ points: points, triangulation, edge_len_fn, dist_fn, fixpoints: Vec::new(), update_counter: 0}
   }
 
   pub fn update(&mut self, delta: f64) {
@@ -140,19 +142,28 @@ impl DistMesh {
     // 4. push back
     self.pushback_points();
 
+    // 5. trangulate
+    //if self.update_counter % 20 == 0 {
     self.triangulation = triangulate(&self.points);
+    //}
+    
+    self.update_counter += 1;
+  }
+
+  pub fn is_fixpoint(&self, iu: usize) -> bool {
+    self.fixpoints[iu]
   }
 
   fn pushback_points(&mut self) {
-    //let mut count = 0;
-    for (i, point) in self.points.iter_mut().enumerate() {
-      if !self.fixpoints[i] {
-        let dist = self.dist_fn.distance(point);
+    let mut count = 0;
+    for iu in 0..self.points.len() {
+      if !self.is_fixpoint(iu) {
+        let dist = self.dist_fn.distance(&self.points[iu]);
         if dist > 0.0 {
-          let grad = self.dist_fn.grad_with_eps(point, PUSH_BACK_EPS);
+          let grad = self.dist_fn.grad_with_eps(&self.points[iu], PUSH_BACK_EPS);
           //println!("before point: ({},{})", point.x, point.y);
-          point.subtract_mut(&grad.mult(dist));
-          //count += 1;
+          self.points[iu].subtract_mut(&grad.mult(dist));
+          count += 1;
           //println!("after point: ({},{})", point.x, point.y);
         }
       } else {
@@ -164,7 +175,7 @@ impl DistMesh {
 
   fn update_points(&mut self, forces: &Vec<Point>, delta: f64) {
     for iu in 0..forces.len() {
-      if !self.fixpoints[iu] {
+      if !self.is_fixpoint(iu) {
         self.points[iu].add_mut(&forces[iu].mult(delta));
       }
     }
