@@ -6,7 +6,7 @@ pub type EdgeLenFn = fn(u: &Point) -> f64;
 
 const OMEGA: f64 = 1.2;
 pub const DELTA_T: f64 = 0.2;
-pub const PUSH_BACK_EPS: f64 = 0.001;
+pub const PUSH_BACK_EPS: f64 = 0.00001;
 
 pub struct BoundigBox {
   x: f64,
@@ -17,8 +17,8 @@ pub struct BoundigBox {
 
 impl BoundigBox {
   fn to_rect(&self) -> Rect {
-    let center_x = self.x + self.w/2.0;
-    let center_y = self.y + self.h/2.0;
+    let center_x = self.x - self.w/2.0;
+    let center_y = self.y - self.h/2.0;
     Rect::new(Point {x: center_x, y: center_y}, self.w, self.h)
   }
 }
@@ -29,6 +29,7 @@ pub struct DistMeshBuilder {
   y1: f64,
   x2: f64,
   y2: f64,
+  fixpoints: Vec<Point>,
   edge_len_fn: Option<EdgeLenFn>,
   dist_fn: Option<Box<dyn SignedDistanceFunction>>,
 }
@@ -38,8 +39,13 @@ impl DistMeshBuilder {
     let x1 = 0.0;
     let y1 = 0.0;
     let x2 = 1.0;
-    let y2 = 1.2;
-    DistMeshBuilder {npoints, x1, y1, x2, y2, edge_len_fn: Some(|_: &Point| {1.0}), dist_fn: None}
+    let y2 = 1.0;
+    DistMeshBuilder {npoints, x1, y1, x2, y2, fixpoints: Vec::new(), edge_len_fn: Some(|_: &Point| {1.0}), dist_fn: None}
+  }
+
+  pub fn add_fixpoint(mut self, fixpoint: Point) -> Self {
+    self.fixpoints.push(fixpoint);
+    self
   }
 
   pub fn x1(mut self, x1: f64) -> Self {
@@ -80,14 +86,26 @@ impl DistMeshBuilder {
     let bbox = BoundigBox {x: self.x1, y: self.y1, w: self.x2-self.x1, h: self.y2-self.y1};
     let dist_fn: Box<dyn SignedDistanceFunction> = self.dist_fn.or(Some(Box::new(bbox.to_rect()))).unwrap();
     
-    let points: Vec<Point> = distribute_points(self.npoints, &bbox, &dist_fn);
+    let mut points: Vec<Point> = distribute_points(self.npoints, &bbox, &dist_fn);
+    
+    let mut fixpoints: Vec<bool> = Vec::with_capacity(self.fixpoints.len() + points.len());
+    for _ in &points {
+      fixpoints.push(false);
+    }
+    
+    for point in self.fixpoints {
+      points.push(point);
+      fixpoints.push(true);
+    }
+
     let triangulation = triangulate(&points);
     
     DistMesh {
       points: points, 
       triangulation: triangulation, 
       edge_len_fn: self.edge_len_fn.expect("expect valid edge length function"), 
-      dist_fn: dist_fn
+      dist_fn: dist_fn,
+      fixpoints: fixpoints,
     }
   }
 }
@@ -97,6 +115,7 @@ pub struct DistMesh {
   pub triangulation: Triangulation,
   edge_len_fn: EdgeLenFn,
   dist_fn: Box<dyn SignedDistanceFunction>,
+  fixpoints: Vec<bool>,
 }
 
 impl DistMesh {
@@ -105,7 +124,7 @@ impl DistMesh {
     let points: Vec<Point> = distribute_points(npoints, &bouding_box, &dist_fn);
     let edge_len_fn = |_: &Point| {1.0};
     let triangulation = triangulate(&points);
-    DistMesh{ points: points, triangulation, edge_len_fn, dist_fn}
+    DistMesh{ points: points, triangulation, edge_len_fn, dist_fn, fixpoints: Vec::new()}
   }
 
   pub fn update(&mut self, delta: f64) {
@@ -125,19 +144,29 @@ impl DistMesh {
   }
 
   fn pushback_points(&mut self) {
-    for point in &mut self.points {
-      let dist = self.dist_fn.distance(point);
-      if dist > 0.0 {
-        let grad = self.dist_fn.grad_with_eps(point, PUSH_BACK_EPS);
-
-        point.subtract_mut(&grad.mult(dist));
+    //let mut count = 0;
+    for (i, point) in self.points.iter_mut().enumerate() {
+      if !self.fixpoints[i] {
+        let dist = self.dist_fn.distance(point);
+        if dist > 0.0 {
+          let grad = self.dist_fn.grad_with_eps(point, PUSH_BACK_EPS);
+          //println!("before point: ({},{})", point.x, point.y);
+          point.subtract_mut(&grad.mult(dist));
+          //count += 1;
+          //println!("after point: ({},{})", point.x, point.y);
+        }
+      } else {
+        //println!("fixpoint: ({},{})", point.x, point.y);
       }
     }
+    //println!("noutside: {}", count);
   }
 
   fn update_points(&mut self, forces: &Vec<Point>, delta: f64) {
     for iu in 0..forces.len() {
-      self.points[iu].add_mut(&forces[iu].mult(delta));
+      if !self.fixpoints[iu] {
+        self.points[iu].add_mut(&forces[iu].mult(delta));
+      }
     }
   }
 

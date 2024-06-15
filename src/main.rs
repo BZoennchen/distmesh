@@ -2,10 +2,19 @@ use distmesh::prelude::*;
 
 fn main() {
     let npoints = 300;
-    let niterations = 3000;
+    let niterations = 1000;
 
     println!("build distmesh");
-    let builder = DistMeshBuilder::new(npoints).x1(-400.0).x2(400.0).y1(-400.0).y2(400.0);
+    let builder = DistMeshBuilder::new(npoints)      
+        .x1(-350.0).x2(350.0)
+        .y1(-350.0).y2(350.0)
+        //.dist_fn(Box::new(Circle::new(Point {x: 0.0, y: 0.0}, 300.0)));
+        .dist_fn(Box::new(Rect::new(Point {x: 0.0, y: 0.0}, 300.0, 300.0)))
+        .add_fixpoint(Point {x: 150.0, y: 150.0})
+        .add_fixpoint(Point {x: -150.0, y: 150.0})
+        .add_fixpoint(Point {x: 150.0, y: -150.0})
+        .add_fixpoint(Point {x: -150.0, y: -150.0});
+
     let mut distmesh = builder.build();
     println!("finish building distmesh");
 
