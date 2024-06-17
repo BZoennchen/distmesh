@@ -3,6 +3,7 @@ use crate::dspoint::DSPoint;
 
 const EPSILON: f64 = 0.0001;
 
+
 pub trait SignedDistanceFunction {
     fn distance(&self, point: &Point) -> f64;
 
@@ -20,6 +21,7 @@ pub trait SignedDistanceFunction {
     }
 }
 
+#[derive(Clone)]
 pub struct Rect {
     pub center: Point,
     pub width: f64,
@@ -78,6 +80,7 @@ impl SignedDistanceFunction for Rect {
     }*/
 }
 
+#[derive(Clone)]
 pub struct Circle {
     pub center: Point,
     pub radius: f64,

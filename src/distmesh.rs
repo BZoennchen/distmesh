@@ -1,12 +1,13 @@
-use delaunator::{Point, triangulate, Triangulation, EMPTY};
+use delaunator::{next_halfedge, prev_halfedge, triangulate, Point, Triangulation, EMPTY, EPSILON};
 use crate::{dspoint::DSPoint, sfd::SignedDistanceFunction, Rect};
 use rand::random;
 
 pub type EdgeLenFn = fn(u: &Point) -> f64;
 
 const OMEGA: f64 = 1.2;
-pub const DELTA_T: f64 = 0.2;
-pub const PUSH_BACK_EPS: f64 = 0.00001;
+const BREAK_POINT: f64 = 2.0;
+pub const DELTA_T: f64 = 0.15;
+pub const PUSH_BACK_EPS: f64 = 0.000001;
 
 pub struct BoundigBox {
   x: f64,
@@ -32,6 +33,9 @@ pub struct DistMeshBuilder {
   fixpoints: Vec<Point>,
   edge_len_fn: Option<EdgeLenFn>,
   dist_fn: Option<Box<dyn SignedDistanceFunction>>,
+  smoothing_fn: fn(labmda_k: f64) -> f64,
+  use_virtual_edges: bool,
+  break_edges: bool, 
 }
 
 impl DistMeshBuilder {
@@ -40,11 +44,40 @@ impl DistMeshBuilder {
     let y1 = 0.0;
     let x2 = 1.0;
     let y2 = 1.0;
-    DistMeshBuilder {npoints, x1, y1, x2, y2, fixpoints: Vec::new(), edge_len_fn: Some(|_: &Point| {1.0}), dist_fn: None}
+
+    DistMeshBuilder {
+      npoints, x1, y1, x2, y2, 
+      fixpoints: Vec::new(), 
+      edge_len_fn: Some(|_: &Point| {1.0}), 
+      dist_fn: None,
+      smoothing_fn: bosson,
+      use_virtual_edges: false,
+      break_edges: false,
+    }
   }
 
   pub fn add_fixpoint(mut self, fixpoint: Point) -> Self {
     self.fixpoints.push(fixpoint);
+    self
+  }
+
+  pub fn bosson(mut self) -> Self {
+    self.smoothing_fn = bosson;
+    self
+  }
+
+  pub fn persson(mut self) -> Self {
+    self.smoothing_fn = persson;
+    self
+  }
+
+  pub fn virtual_edges(mut self) -> Self {
+    self.use_virtual_edges = true;
+    self
+  }
+
+  pub fn break_edges(mut self) -> Self {
+    self.break_edges = true;
     self
   }
 
@@ -99,12 +132,18 @@ impl DistMeshBuilder {
     }
 
     let triangulation = triangulate(&points);
-    
+
+    //let d: EdgeLenFn = |p: &Point| {1.0 + Rect::new(Point {x: 0.0, y: 0.0}, 500.0, 500.0).distance(p).abs()/500.0};
+
     DistMesh {
       points: points, 
       triangulation: triangulation, 
-      edge_len_fn: self.edge_len_fn.expect("expect valid edge length function"), 
+      edge_len_fn: self.edge_len_fn.expect("expect valid edge length function"),
+      //edge_len_fn: d, 
       dist_fn: dist_fn,
+      smoothing_fn: self.smoothing_fn,
+      use_virtual_edges: self.use_virtual_edges,
+      break_edges: self.break_edges,
       fixpoints: fixpoints,
       update_counter: 0,
     }
@@ -116,6 +155,9 @@ pub struct DistMesh {
   pub triangulation: Triangulation,
   edge_len_fn: EdgeLenFn,
   dist_fn: Box<dyn SignedDistanceFunction>,
+  smoothing_fn: fn(lambda_k: f64) -> f64,
+  use_virtual_edges: bool,
+  break_edges: bool,
   fixpoints: Vec<bool>,
   update_counter: usize,
 }
@@ -126,12 +168,23 @@ impl DistMesh {
     let points: Vec<Point> = distribute_points(npoints, &bouding_box, &dist_fn);
     let edge_len_fn = |_: &Point| {1.0};
     let triangulation = triangulate(&points);
-    DistMesh{ points: points, triangulation, edge_len_fn, dist_fn, fixpoints: Vec::new(), update_counter: 0}
+    DistMesh{ 
+      points: points, triangulation, 
+      edge_len_fn, dist_fn, 
+      smoothing_fn: bosson,
+      use_virtual_edges: false,
+      break_edges: false,
+      fixpoints: Vec::new(), 
+      update_counter: 0}
   }
 
   pub fn update(&mut self, delta: f64) {
     // 1. compute scale value
     let scale = self.compute_scaling();
+
+    if self.break_edges {
+      self.break_edges(scale);
+    }
 
     // 2. compute forces
     let forces = self.compute_forces(scale);
@@ -144,10 +197,66 @@ impl DistMesh {
 
     // 5. trangulate
     //if self.update_counter % 20 == 0 {
-    self.triangulation = triangulate(&self.points);
+      //self.collapse_edges(scale);
+      self.triangulation = triangulate(&self.points);
     //}
     
     self.update_counter += 1;
+  }
+
+  pub fn collapse_edges(&mut self, scale: f64) {
+    let len = self.triangulation.hull.len();
+    let mut removes: Vec<usize> = Vec::new();
+    for i in 0..len {
+      let iu = self.triangulation.hull[i];
+      let iv = self.triangulation.hull[(i + 1) % len];
+      let iw = self.triangulation.hull[(i + 2) % len];
+
+      let u: &Point = &self.points[iu];
+      let v: &Point = &self.points[iv];
+      let w: &Point = &self.points[iw];
+
+      let uv: Point = u.subtract(v);
+      let vw: Point = v.subtract(w);
+      let uv_center = u.center(v);
+      let vw_center = v.center(w);
+
+      let h_k1: f64 = (self.edge_len_fn)(&uv_center) * scale;
+      let h_k2: f64 = (self.edge_len_fn)(&vw_center) * scale;
+
+      if uv.len() / h_k1 < 0.3 && vw.len() / h_k2 < 0.3 {
+        removes.push(iv);
+      }
+    }
+
+    removes.sort();
+    removes.reverse();
+    for i in 0..removes.len() {
+      self.points.remove(i);
+      self.fixpoints.remove(i);
+    }
+
+  }
+
+  pub fn break_edges(&mut self, scale: f64) {
+    let len = self.triangulation.hull.len();
+    for i in 0..len {
+      let iv = self.triangulation.hull[i];
+      let iu = self.triangulation.hull[(i + 1) % len];
+
+      let u: &Point = &self.points[iu];
+      let v: &Point = &self.points[iv];
+      let uv: Point = u.subtract(v);
+      let center = u.center(v);
+
+      let h_k: f64 = (self.edge_len_fn)(&center) * scale;
+      let lambda_k: f64 = uv.len() / h_k;
+      if lambda_k > BREAK_POINT {
+        //center.add_mut(&Point {x: EPSILON, y: EPSILON});
+        self.points.push(center);
+        self.fixpoints.push(false);
+      }
+    }
   }
 
   pub fn is_fixpoint(&self, iu: usize) -> bool {
@@ -197,7 +306,7 @@ impl DistMesh {
 
     let h_k: f64 = (self.edge_len_fn)(&center) * OMEGA * scale;
     let lambda_k: f64 = uv.len() / h_k;
-    let nu_hat: f64 = f64::max(1.0 - lambda_k, 0.0);
+    let nu_hat: f64 = (self.smoothing_fn)(lambda_k);
     let nu: f64 = nu_hat * h_k;
     
     let force = normed_dir.mult(nu);
@@ -252,7 +361,6 @@ impl DistMesh {
   }
 
   fn compute_forces(&self, scale: f64) -> Vec<Point> {
-    
     let mut forces: Vec<Point> = Vec::with_capacity(self.points.len());
     for _ in 0..self.points.len() {
       forces.push(Point {x: 0.0, y: 0.0});
@@ -266,6 +374,19 @@ impl DistMesh {
 
         let u: &Point = &self.points[iu];
         let v: &Point = &self.points[iv];
+        
+        // add virtual force
+        if self.use_virtual_edges {
+          let inext = next_halfedge(iedge);
+          if self.triangulation.halfedges[inext] == EMPTY {
+            let iprev: usize = prev_halfedge(iedge);
+            let iw =  self.triangulation.triangles[iprev];
+            let w: &Point = &self.points[iw];
+            let virtual_ppoint = v.center(w);
+            forces[iu].add_mut(&self.compute_force(u, &virtual_ppoint, scale * f64::sqrt(3.0)/2.0));
+          }
+        }
+
         forces[iu].add_mut(&self.compute_force(u, v, scale));
       }
     }
@@ -312,4 +433,12 @@ fn distribute_points(n: usize, bouding_box: &BoundigBox, dist_fn: &Box<dyn Signe
 fn random_range(a: f64, b: f64) -> f64 {
   let d = b-a;
   a + random::<f64>()*d
+}
+
+pub fn bosson(lambda_k: f64) -> f64 {
+  (1.0-lambda_k.powi(4)) * (-lambda_k.powi(4)).exp()
+}
+
+pub fn persson(lambda_k: f64) -> f64 {
+  f64::max(1.0 - lambda_k, 0.0)
 }
