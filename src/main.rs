@@ -16,7 +16,10 @@ use delaunator::{Point, triangulate};
 
 
 use nannou::prelude::*;
-use distmesh::{dspoint::DSPoint, prelude::*, Rect};
+use distmesh::prelude::*;
+use distmesh::tikz::to_tikz_string;
+use std::fs::File;
+use std::io::Write;
 
 const SIZE: u32 = 800;
 const POINT_SIZE: f32 = 5.0;
@@ -82,8 +85,17 @@ fn model(app: &App) -> Model {
     Model { _window, distmesh}
 }
 
-fn update(_app: &App, model: &mut Model, _update: Update) {
+fn update(app: &App, model: &mut Model, _update: Update) {
     model.update();
+    if app.elapsed_frames() % 100 == 0 {
+        println!("{}", &to_tikz_string(&model.distmesh));
+
+        // Create a new file (or truncate if it exists)
+        let mut file = File::create("output.tex").expect("error!");
+        
+        // Write the string to the file
+        file.write_all(&to_tikz_string(&model.distmesh).as_bytes()).expect("error!!");
+    }
 }
 
 fn view(app: &App, model: &Model, frame: Frame) {

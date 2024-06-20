@@ -1,3 +1,5 @@
+use std::usize;
+
 use delaunator::{next_halfedge, prev_halfedge, triangulate, Point, Triangulation, EMPTY, EPSILON};
 use crate::{dspoint::DSPoint, sfd::SignedDistanceFunction, Rect};
 use rand::random;
@@ -408,6 +410,10 @@ impl DistMesh {
     }
 
     forces
+  }
+
+  pub fn is_empty(&self, halfedge: usize) -> bool {
+    halfedge == EMPTY
   }
 }
 
