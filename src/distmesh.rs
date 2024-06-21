@@ -1,7 +1,7 @@
 use std::usize;
 
 use delaunator::{next_halfedge, prev_halfedge, triangulate, Point, Triangulation, EMPTY, EPSILON};
-use crate::{dspoint::DSPoint, sfd::SignedDistanceFunction, Rect};
+use crate::{geometry::DSPoint, geometry::polygon_centroid, sfd::SignedDistanceFunction, Rect};
 use rand::random;
 
 pub type EdgeLenFn = fn(u: &Point) -> f64;
@@ -182,6 +182,7 @@ impl DistMesh {
 
   pub fn update(&mut self, delta: f64) {
     // 1. compute scale value
+    self.triangulation = triangulate(&self.points);
     let scale = self.compute_scaling();
 
     if self.break_edges {
@@ -200,13 +201,35 @@ impl DistMesh {
     // 5. trangulate
     //if self.update_counter % 20 == 0 {
       //self.collapse_edges(scale);
-      self.triangulation = triangulate(&self.points);
+      
+      self.remove_triangles();
     //}
     
     self.update_counter += 1;
   }
 
-  pub fn collapse_edges(&mut self, scale: f64) {
+  fn remove_triangles(&mut self) {
+    let mut filtered_triangles: Vec<usize> = Vec::new();
+    for i in 0..self.triangulation.len() {
+      let iu = self.triangulation.triangles[3*i];
+      let iv = self.triangulation.triangles[3*i+1];
+      let iw = self.triangulation.triangles[3*i+2];
+
+      let u: &Point = &self.points[iu];
+      let v: &Point = &self.points[iv];
+      let w: &Point = &self.points[iw];
+
+      let opt_centroid = polygon_centroid(&[u, v, w]);
+      if opt_centroid.is_some() && self.dist_fn.distance(&opt_centroid.unwrap()) < 0.0 {
+        filtered_triangles.push(iu);
+        filtered_triangles.push(iv);
+        filtered_triangles.push(iw);
+      }
+    }
+    self.triangulation.triangles = filtered_triangles;
+  }
+
+  fn collapse_edges(&mut self, scale: f64) {
     let len = self.triangulation.hull.len();
     let mut removes: Vec<usize> = Vec::new();
     for i in 0..len {
@@ -240,7 +263,7 @@ impl DistMesh {
 
   }
 
-  pub fn break_edges(&mut self, scale: f64) {
+  fn break_edges(&mut self, scale: f64) {
     let len = self.triangulation.hull.len();
     for i in 0..len {
       let iv = self.triangulation.hull[i];
@@ -272,16 +295,11 @@ impl DistMesh {
         let dist = self.dist_fn.distance(&self.points[iu]);
         if dist > 0.0 {
           let grad = self.dist_fn.grad_with_eps(&self.points[iu], PUSH_BACK_EPS);
-          //println!("before point: ({},{})", point.x, point.y);
           self.points[iu].subtract_mut(&grad.mult(dist));
           count += 1;
-          //println!("after point: ({},{})", point.x, point.y);
         }
-      } else {
-        //println!("fixpoint: ({},{})", point.x, point.y);
-      }
+      } 
     }
-    //println!("noutside: {}", count);
   }
 
   fn update_points(&mut self, forces: &Vec<Point>, delta: f64) {

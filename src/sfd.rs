@@ -1,5 +1,5 @@
 use delaunator::Point;
-use crate::dspoint::DSPoint;
+use crate::geometry::DSPoint;
 
 const EPSILON: f64 = 0.0001;
 
@@ -23,9 +23,9 @@ pub trait SignedDistanceFunction {
 
 #[derive(Clone)]
 pub struct Rect {
-    pub center: Point,
-    pub width: f64,
-    pub height: f64,
+    center: Point,
+    width: f64,
+    height: f64,
 }
 
 impl Rect {
@@ -82,8 +82,8 @@ impl SignedDistanceFunction for Rect {
 
 #[derive(Clone)]
 pub struct Circle {
-    pub center: Point,
-    pub radius: f64,
+    center: Point,
+    radius: f64,
 }
 
 impl Circle {
@@ -98,8 +98,33 @@ impl SignedDistanceFunction for Circle {
     }
 }
 
+pub struct Ring {
+    center: Point,
+    inner_radius: f64,
+    outer_radius: f64,
+}
+
+impl Ring {
+    pub fn new(center: Point, inner_radius: f64, outer_radius: f64) -> Self {
+        assert!(inner_radius < outer_radius);
+        Self {center, inner_radius, outer_radius}
+    }
+}
+
+impl SignedDistanceFunction for Ring {
+    fn distance(&self, point: &Point) -> f64 {
+        let r1 = (self.outer_radius + self.inner_radius) / 2.0;
+        let r2 = (self.outer_radius - self.inner_radius) / 2.0;
+
+        let dx = point.x - self.center.x;
+        let dy = point.y - self.center.y;
+        let len = (dx*dx + dy*dy).sqrt();
+        (len-r1).abs() - r2
+    }
+}
+
 pub struct SDFUnion {
-    pub sdfs: Vec<Box<dyn SignedDistanceFunction>>,
+    sdfs: Vec<Box<dyn SignedDistanceFunction>>,
 }
 
 impl SignedDistanceFunction for SDFUnion {

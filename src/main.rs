@@ -39,7 +39,7 @@ impl Model {
     fn update(&mut self) {
         self.distmesh.update(0.1);
 
-        println!("quality: {}", quality(
+        println!("quality: {}", avg_quality(
             &self.distmesh.points, 
             &self.distmesh.triangulation.triangles)
         );
@@ -73,7 +73,8 @@ fn model(app: &App) -> Model {
         .break_edges()
         .bosson()
         //.edge_len_fn(|p|{1.0 + Point {x: 0.0, y: 0.0}.distance(p) / 30.0})
-        .dist_fn(Box::new(Circle::new(Point {x: 0.0, y: 0.0}, 300.0)));
+        .dist_fn(Box::new(Ring::new(Point {x: 0.0, y: 0.0}, 100.0, 300.0)));
+        //.dist_fn(Box::new(Circle::new(Point {x: 0.0, y: 0.0}, 300.0)));
         /*.dist_fn(Box::new(Rect::new(Point {x: 0.0, y: 0.0}, 500.0, 500.0)))
         .add_fixpoint(Point {x: 250.0, y: 250.0})
         .add_fixpoint(Point {x: -250.0, y: 250.0})
@@ -88,13 +89,13 @@ fn model(app: &App) -> Model {
 fn update(app: &App, model: &mut Model, _update: Update) {
     model.update();
     if app.elapsed_frames() % 100 == 0 {
-        println!("{}", &to_tikz_string(&model.distmesh));
+        //println!("{}", &to_tikz_string(&model.distmesh));
 
         // Create a new file (or truncate if it exists)
-        let mut file = File::create("output.tex").expect("error!");
+        //let mut file = File::create("output.tex").expect("error!");
         
         // Write the string to the file
-        file.write_all(&to_tikz_string(&model.distmesh).as_bytes()).expect("error!!");
+        //file.write_all(&to_tikz_string(&model.distmesh).as_bytes()).expect("error!!");
     }
 }
 
