@@ -1,3 +1,5 @@
+use std::slice::Iter;
+
 use delaunator::Point;
 
 pub const EMPTY: usize = usize::MAX;
@@ -128,6 +130,50 @@ impl<'a> Iterator for HalfedgeIterator<'a> {
   }
 }
 
+pub struct FacesIterator<'a> {
+  mesh: &'a Mesh,
+  index: usize,
+}
+
+impl<'a> Iterator for FacesIterator<'a> {
+  type Item = usize;
+  
+  fn next(&mut self) -> Option<Self::Item> {
+    if self.index >= self.mesh.faces.len() {
+      return None;
+    }
+
+    while self.mesh.faces[self.index].face_type != FaceType::Normal {
+      self.index += 1;
+    }
+
+    if self.index >= self.mesh.faces.len() {
+      return None;
+    } else {
+      self.index += 1;
+      return Some(self.mesh.faces[self.index-1].id);
+    }
+  }
+}
+
+pub struct VertexIterator<'a> {
+  mesh: &'a Mesh,
+  index: usize,
+}
+
+impl<'a> Iterator for VertexIterator<'a> {
+  type Item = usize;
+  
+  fn next(&mut self) -> Option<Self::Item> {
+    if self.index >= self.mesh.vertices.len() {
+      return None;
+    }
+
+    self.index += 1;
+    return Some(self.mesh.vertices[self.index-1].id);
+  }
+}
+
 impl Mesh {
 
   pub fn triangle(u1: Point, u2: Point, u3: Point) -> Mesh {
@@ -181,6 +227,14 @@ impl Mesh {
   /*pub fn iter_faces(&self) -> Iter<'_, usize> {
     mesh.ha
   }*/
+
+  pub fn iter_vertices(&self) -> VertexIterator {
+    VertexIterator {mesh: self, index: 0}
+  }
+
+  pub fn iter_faces(&self) -> FacesIterator {
+    FacesIterator {mesh: self, index: 0}
+  }
 
   pub fn iter_face<'a>(&'a self, face: usize) -> FaceIterator {
     FaceIterator {mesh: self, face: face, start: EMPTY, current: EMPTY}

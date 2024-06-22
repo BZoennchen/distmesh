@@ -1,19 +1,19 @@
-use nannou::draw::Mesh;
+use crate::mesh::mesh::Mesh;
+use delaunator::Point;
 
-/*
-pub fn to_tikz_string(distmesh: &Mesh) -> String {
+pub fn to_tikz_string(mesh: &Mesh) -> String {
   let mut tikz: String = String::new();
 
   tikz.push_str(&preamble());
   
   // 1. faces
-  tikz.push_str(&faces_to_tikz(distmesh));
+  tikz.push_str(&faces_to_tikz(mesh));
 
   // 2. edges
-  tikz.push_str(&edges_to_tikz(distmesh));
+  tikz.push_str(&edges_to_tikz(mesh));
 
   // 3. vertices
-  tikz.push_str(&vertices_to_tikz(distmesh));
+  tikz.push_str(&vertices_to_tikz(mesh));
 
   tikz.push_str(&outro());
 
@@ -39,18 +39,86 @@ fn outro() -> String {
   String::from("\\end{tikzpicture}\n\\end{document}")
 }
 
-fn faces_to_tikz(distmesh: &Mesh) -> String {
+fn faces_to_tikz(mesh: &Mesh) -> String {
   let mut tikz: String = String::new();
   
-  for i in 0..mesh.faces
-
-  for index in 0..distmesh.triangulation.triangles.len()  {
-    if index % 3 == 2 {
-        tikz.push_str(&face_to_tikz_string(distmesh, index));
-        tikz.push_str("\n");
-        //\filldraw[fill=faceColor1](0.8000,-0.7764)--(0.7408,-0.7396)--(0.7744,-0.7724)-- (0.8000,-0.7764);
-    }
+  for face in mesh.iter_faces() {
+    tikz.push_str(&face_to_tikz_string(mesh, face));
+    tikz.push_str("\n");
+    
+    
   }
-
   tikz
-} */
+}
+
+fn face_to_tikz_string(mesh: &Mesh, face: usize) -> String {
+  let mut tikz: String = String::from("\\filldraw[color=faceColor,fill=faceColorFill]");
+  
+  for halfedge in mesh.iter_face(face) {
+    let p = mesh.point_of_edge(halfedge);
+    tikz.push_str(&point_to_tikz(p));
+    tikz.push_str("--");
+  }
+  tikz.pop();
+  tikz.pop();
+  tikz.push(';');
+  tikz
+}
+
+fn point_to_tikz(point: &Point) -> String {
+  let mut tikz = String::new();
+  tikz.push('(');
+  tikz.push_str(&point.x.to_string());
+  tikz.push(',');
+  tikz.push_str(&point.y.to_string());
+  tikz.push(')');
+  tikz
+}
+
+fn edges_to_tikz(mesh: &Mesh) -> String {
+  //\draw[color=edgeColor1](-0.5075,0.8298) -- (-0.5266,0.8501);
+  // \draw[color=vertexColor1, fill=vertexColor1Fill](-0.5266,0.8501) circle (\circleSize);
+  let mut tikz: String = String::new();
+  for halfedge in mesh.iter_edges() {
+    tikz.push_str(&halfedge_to_tikz(mesh, halfedge));
+    tikz.push_str("\n");
+  }
+  tikz
+}
+
+fn halfedge_to_tikz(mesh: &Mesh, halfedge: usize) -> String {
+  let mut tikz: String = String::new();
+
+  let u = mesh.point_of_edge(halfedge);
+  let v = mesh.point_of_edge(mesh.twin(halfedge));
+
+  tikz.push_str(&points_to_tikz(u, v));
+  tikz
+}
+
+fn points_to_tikz(u: &Point, v: &Point) -> String {
+  let mut tikz: String = String::new();
+  tikz.push_str("\\draw[color=edgeColor]");
+  tikz.push_str(&point_to_tikz(u));
+  tikz.push_str("--");
+  tikz.push_str(&point_to_tikz(v));
+  tikz.push(';');
+  tikz
+}
+
+fn vertices_to_tikz(mesh: &Mesh) -> String {
+  let mut tikz: String = String::new();
+
+  for vertex in mesh.iter_vertices() {
+    let point = mesh.point_of_vertex(vertex);
+    tikz.push_str("\\draw[color=vertexColor, fill=vertexColorFill]");
+    tikz.push_str(&point_to_tikz(point));
+    tikz.push_str("circle");
+    tikz.push('(');
+    tikz.push_str("\\circleSize");
+    tikz.push(')');
+    tikz.push(';');
+    tikz.push_str("\n");
+  }
+  tikz
+}
