@@ -28,29 +28,29 @@ pub struct Mesh {
 
 pub struct FaceIterator<'a> {
   mesh: &'a Mesh,
-  face: &'a usize,
-  start: &'a usize,
-  current: &'a usize,
+  face: usize,
+  start: usize,
+  current: usize,
 }
 
 impl<'a> Iterator for FaceIterator<'a> {
-  type Item = &'a usize;
+  type Item = usize;
   
   fn next(&mut self) -> Option<Self::Item> {
-    if *self.start == EMPTY {
-      self.start = &self.mesh.faces[*self.face].halfedge;
+    if self.start == EMPTY {
+      self.start = self.mesh.faces[self.face].halfedge;
       self.current = self.start;
     } else {
-      self.current = &self.mesh.halfedges[*self.current].next;
-      if (*self.current) == (*self.start) {
+      self.current = self.mesh.halfedges[self.current].next;
+      if (self.current) == (self.start) {
         return None;
       }
     }
-    return Some(&self.current);
+    return Some(self.current);
   }
 }
 
-pub struct HalfedgeIterator<'a> {
+/*pub struct HalfedgeIterator<'a> {
   mesh: &'a Mesh,
   unvisited_faces: &'a mut Vec<&'a usize>,
   visited_faces: &'a mut Vec<&'a bool>,
@@ -69,7 +69,7 @@ impl<'a> Iterator for HalfedgeIterator<'a> {
       }
     }
   }
-}
+}*/
 
 impl Mesh {
 
@@ -125,8 +125,8 @@ impl Mesh {
     mesh.ha
   }*/
 
-  pub fn iter_face<'a>(&'a self, face: &'a usize) -> FaceIterator {
-    FaceIterator {mesh: self, face: face, start: &EMPTY, current: &EMPTY}
+  pub fn iter_face<'a>(&'a self, face: usize) -> FaceIterator {
+    FaceIterator {mesh: self, face: face, start: EMPTY, current: EMPTY}
   }
 
   fn empty() -> Self {
