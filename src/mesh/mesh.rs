@@ -33,10 +33,20 @@ pub struct FaceIterator<'a> {
   current: usize,
 }
 
+impl<'a> FaceIterator<'a> {
+  pub fn empty(mesh: &'a Mesh) -> Self {
+    FaceIterator {mesh: mesh, face: EMPTY, start: EMPTY, current: EMPTY}
+  }
+}
+
 impl<'a> Iterator for FaceIterator<'a> {
   type Item = usize;
   
   fn next(&mut self) -> Option<Self::Item> {
+    if self.face == EMPTY {
+      return None;
+    }
+
     if self.start == EMPTY {
       self.start = self.mesh.faces[self.face].halfedge;
       self.current = self.start;
@@ -50,26 +60,73 @@ impl<'a> Iterator for FaceIterator<'a> {
   }
 }
 
-/*pub struct HalfedgeIterator<'a> {
+pub struct HalfedgeIterator<'a> {
   mesh: &'a Mesh,
-  unvisited_faces: &'a mut Vec<&'a usize>,
-  visited_faces: &'a mut Vec<&'a bool>,
-  current_face_it: &'a mut FaceIterator<'a>,
+  unvisited_faces: Vec<usize>,
+  visited_faces: Vec<bool>,
+  face_iterator: FaceIterator<'a>,
+}
+
+impl<'a> HalfedgeIterator<'a> {
+  pub fn new(mesh: &'a Mesh) -> Self {
+    let unvisited_faces: Vec<usize> = Vec::new();
+    let mut visited_faces = vec![false; mesh.number_of_faces()];
+    let some_face = mesh.some_face();
+
+    let face_iterator = match some_face {
+      Some(face) => {
+        visited_faces[face] = true;
+        mesh.iter_face(face)
+      },
+      None => FaceIterator::empty(mesh)
+    };
+
+    
+    HalfedgeIterator {
+      mesh,
+      unvisited_faces: unvisited_faces,
+      visited_faces: visited_faces,
+      face_iterator,
+    }
+  }
 }
 
 impl<'a> Iterator for HalfedgeIterator<'a> {
-  type Item = &'a usize;
+  type Item = usize;
   
   fn next(&mut self) -> Option<Self::Item> {
-    match self.current_face_it.next() {
-      Some(halfedge) => Some(halfedge),
+    match self.face_iterator.next() {
+      Some(halfedge) => {
+        let new_face = self.mesh.face(self.mesh.twin(halfedge));
+        if !self.visited_faces[new_face] {
+          self.unvisited_faces.push(new_face)
+        }
+        Some(halfedge)
+      },
       None => {
-        self.current_face_it = &mut self.mesh.iter_face(&self.unvisited_faces.pop().unwrap());
-        return Some(&1);
+        if self.unvisited_faces.is_empty() {
+          return None;
+        }
+
+        loop {
+          let face = self.unvisited_faces.pop();
+          if face.is_none() {
+            return None;
+          }
+
+          let face = face.unwrap();
+          if self.visited_faces[face] {
+            continue;
+          }
+
+          self.face_iterator = self.mesh.iter_face(face);
+          self.visited_faces[face] = true;
+          return self.next()
+        }
       }
     }
   }
-}*/
+}
 
 impl Mesh {
 
@@ -127,6 +184,10 @@ impl Mesh {
 
   pub fn iter_face<'a>(&'a self, face: usize) -> FaceIterator {
     FaceIterator {mesh: self, face: face, start: EMPTY, current: EMPTY}
+  }
+
+  pub fn iter_edges<'a>(&'a self) -> HalfedgeIterator {
+    HalfedgeIterator::new(self)
   }
 
   fn empty() -> Self {
@@ -224,6 +285,10 @@ impl Mesh {
   pub fn some_face(&self) -> Option<usize> {
     self.faces.iter().find(|f| f.face_type == FaceType::Normal).map(|f| f.id)
   }
+
+  pub fn number_of_faces(&self) -> usize {
+    self.faces.len()
+  } 
 
   pub fn validate(&self) -> bool {
     let valid_faces = self.faces.iter().enumerate().all(|(index, face)| {face.id == index});
