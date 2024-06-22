@@ -1,5 +1,5 @@
 use crate::mesh::mesh::Mesh;
-use delaunator::Point;
+use crate::triangulator::Point;
 
 pub fn to_tikz_string(mesh: &Mesh) -> String {
   let mut tikz: String = String::new();

@@ -1,6 +1,6 @@
-use std::slice::Iter;
+use std::{any::Any, slice::Iter};
 
-use delaunator::Point;
+use crate::triangulator::Point;
 
 pub const EMPTY: usize = usize::MAX;
 
@@ -269,8 +269,81 @@ impl Mesh {
 
   pub fn set_halfedge(&mut self, vertex: usize, halfedge: usize) {
     debug_assert!(self.vertices.len() > vertex);
-    debug_assert!(self.vertices[vertex].halfedge == EMPTY);
     self.vertices[vertex].halfedge = halfedge;
+  }
+
+  pub fn set_vertex(&mut self, halfedge: usize, vertex: usize) {
+    debug_assert!(self.halfedges.len() > halfedge);
+    self.halfedges[halfedge].end = vertex;
+  }
+
+  pub fn set_face(&mut self, halfedge: usize, face: usize) {
+    debug_assert!(self.halfedges.len() > halfedge);
+    self.halfedges[halfedge].face = face;
+  }
+
+  pub fn set_next(&mut self, halfedge: usize, next: usize) {
+    debug_assert!(self.halfedges.len() > halfedge);
+    self.halfedges[halfedge].next = next;
+  }
+
+  pub fn set_twin(&mut self, halfedge: usize, twin: usize) {
+    debug_assert!(self.halfedges.len() > halfedge);
+    self.halfedges[halfedge].twin = twin;
+  }
+
+  pub fn set_prev(&mut self, halfedge: usize, prev: usize) {
+    debug_assert!(self.halfedges.len() > halfedge);
+    self.halfedges[halfedge].prev = prev;
+  }
+
+  pub fn insert(&mut self, halfedge: usize, p: Point) -> usize {
+    debug_assert!(self.halfedges.len() > halfedge);
+    debug_assert!(
+      self.faces[self.face(halfedge)].face_type == FaceType::Boundary || 
+      self.faces[self.face(halfedge)].face_type == FaceType::Hole
+    );
+    
+    let a = self.prev(halfedge);
+    let b = self.next(halfedge);
+    let border = self.face(halfedge);
+    if self.faces[border].halfedge == halfedge {
+      self.faces[border].halfedge = b;
+    }
+
+    let face = self.create_face(FaceType::Normal);
+    let v = self.create_vertex(p);
+
+    self.faces[face].halfedge = halfedge;
+    self.halfedges[halfedge].face = face;
+
+    let e1 = self.create_halfedge(v, Some(face));
+    let e2 = self.create_halfedge(self.vertex(a), Some(face));
+    let t1 = self.create_halfedge(self.vertex(halfedge), Some(border));
+    let t2 = self.create_halfedge(v, Some(border));
+    self.vertices[v].halfedge = e1;
+
+    self.set_next(halfedge, e1);
+    self.set_next(e1, e2);
+    self.set_next(e2, halfedge);
+    self.set_prev(halfedge, e2);
+    self.set_prev(e2, e1);
+    self.set_prev(e1, halfedge);
+    
+    self.set_twin(e1, t1);
+    self.set_twin(t1, e1);
+    self.set_twin(e2, t2);
+    self.set_twin(t2, e2);
+
+    self.set_next(a, t2);
+    self.set_next(t2, t1);
+    self.set_next(t1, b);
+
+    self.set_prev(b, t1);
+    self.set_prev(t1, t2);
+    self.set_prev(t2, a);
+
+    t2
   }
 
   pub fn create_face(&mut self, face_type: FaceType) -> usize {
@@ -309,13 +382,20 @@ impl Mesh {
     self.halfedges[halfedge].face
   }
 
+  pub fn is_border(&self, halfedge: usize) -> bool {
+    debug_assert!(halfedge != EMPTY);
+    let face = self.halfedges[halfedge].face;
+    let twin_face = self.halfedges[self.twin(halfedge)].face;
+    self.faces[face].face_type == FaceType::Boundary || self.faces[twin_face].face_type == FaceType::Hole
+  }
+
   pub fn edge_of_vertex(&self, vertex: usize) -> usize {
     debug_assert!(vertex != EMPTY);
     debug_assert!(self.vertices.len() > vertex);
     self.vertices[vertex].halfedge
   }
 
-  pub fn vertex_of_edge(&self, halfedge: usize) -> usize {
+  pub fn vertex(&self, halfedge: usize) -> usize {
     debug_assert!(halfedge != EMPTY);
     debug_assert!(self.halfedges.len() > halfedge);
     self.halfedges[halfedge].end
@@ -326,6 +406,12 @@ impl Mesh {
     self.faces[face].halfedge
   }
 
+  pub fn set_edge_of_face(&mut self, face: usize, halfedge: usize) {
+    debug_assert!(face != EMPTY);
+    self.faces[face].halfedge = halfedge;
+  }
+
+
   pub fn point_of_vertex(&self, vertex: usize) -> &Point {
     debug_assert!(vertex != EMPTY);
     debug_assert!(self.vertices.len() > vertex);
@@ -333,7 +419,7 @@ impl Mesh {
   }
 
   pub fn point_of_edge(&self, halfedge: usize) -> &Point {
-    self.point_of_vertex(self.vertex_of_edge(halfedge))
+    self.point_of_vertex(self.vertex(halfedge))
   }
 
   pub fn some_face(&self) -> Option<usize> {
@@ -373,13 +459,12 @@ struct Halfedge {
   prev: usize,
   twin: usize,
   face: usize,
-  face_type: FaceType,
 }
 
 impl Halfedge {
 
   pub fn empty(id: usize) -> Self {
-    Self {id, end: EMPTY, next: EMPTY, prev: EMPTY, twin: EMPTY, face: EMPTY, face_type: FaceType::Normal}
+    Self {id, end: EMPTY, next: EMPTY, prev: EMPTY, twin: EMPTY, face: EMPTY}
   }
 
   pub fn is_valid(&self) -> bool {
