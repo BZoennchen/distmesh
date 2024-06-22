@@ -117,6 +117,7 @@ pub fn polygon_centroid(polygon: &[&Point]) -> Option<Point> {
   Some(Point {x, y})
 }
 
+// CCW ordered
 pub fn equiliteral_triangle(seg_len: f64) -> (Point, Point, Point) {
   let u1 = Point {x: 0.0, y: 0.0};
   let u2 = Point {x: seg_len, y: 0.0};
