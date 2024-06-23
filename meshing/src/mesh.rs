@@ -1,15 +1,6 @@
-use crate::geometry::Point;
+use crate::geometry::{DSPoint, Point};
 
 pub const EMPTY: usize = usize::MAX;
-
-#[derive(Debug)]
-pub struct Mesh {
-  faces: Vec<Face>,
-  holes: Vec<usize>,
-  halfedges: Vec<Halfedge>,
-  vertices: Vec<Vertex>,
-  boundary: usize,
-}
 
 pub struct FaceIterator<'a> {
   mesh: &'a Mesh,
@@ -66,7 +57,7 @@ impl<'a> HalfedgeIterator<'a> {
       None => FaceIterator::empty(mesh)
     };
 
-    
+
     HalfedgeIterator {
       mesh,
       unvisited_faces: unvisited_faces,
@@ -157,10 +148,20 @@ impl<'a> Iterator for VertexIterator<'a> {
   }
 }
 
+#[derive(Debug)]
+pub struct Mesh {
+  faces: Vec<Face>,
+  holes: Vec<usize>,
+  halfedges: Vec<Halfedge>,
+  vertices: Vec<Vertex>,
+  boundary: usize,
+}
+
 impl Mesh {
 
   pub fn triangle(u1: Point, u2: Point, u3: Point) -> Mesh {
     //TODO we assume ccw ordering here!
+    debug_assert!(u1.ccw(&u2, &u3));
     let mut mesh = Self::empty();
     let inner_face = mesh.create_face(FaceType::Normal);
     let v1 = mesh.create_vertex(u1);
@@ -183,10 +184,6 @@ impl Mesh {
     mesh.set_cycle_and_twins(halfedge1, halfedge2, halfedge3, twin1, twin2, twin3);
     mesh
   }
-
-  /*pub fn iter_faces(&self) -> Iter<'_, usize> {
-    mesh.ha
-  }*/
 
   pub fn iter_vertices(&self) -> VertexIterator {
     VertexIterator {mesh: self, index: 0}
@@ -428,12 +425,151 @@ impl Mesh {
     let valid_vertices = self.vertices.iter().enumerate().all(|(index, vertex)| {vertex.id == index});
     return valid_faces && valid_halfedges && valid_vertices
   }
+
+  pub fn find_visible_edge(&self, p: &Point) -> Option<usize> {
+    for halfedge in self.iter_face(self.boundary()) {
+      let u2 = self.point_of_edge(halfedge);
+      let u1 = self.point_of_edge(self.twin(halfedge));
+      if p.orient(u1, u2) <= 0. {
+        return Some(halfedge)
+      }
+    }
+    None
+  }
+
+  fn flip(&mut self, halfedge: usize) {
+
+    // if the pair of triangles doesn't satisfy the Delaunay condition
+    // (p1 is inside the circumcircle of [p0, pl, pr]), flip them,
+    // then do the same check/flip recursively for the new pair of triangles
+    //
+    //           va0                         va0
+    //          /||\                        /  \
+    //       a1/ || \b2                  a1/    \b2
+    //        /  ||  \                   /      \
+    //       / a0||b0 \       flip      /___b0___\
+    //    va1\   ||    /vb1    =>    va1\---a0---/vb1
+    //        \  ||   /                \       /
+    //       a2\ ||  /b1               a2\     /b1
+    //          \||/                      \  /
+    //          vb0                        vb0
+    //
+  
+    // 1. gather all the references required
+    let a0 = halfedge;
+    let a1 = self.next(a0);
+    let a2 = self.next(a1);
+  
+    let b0 = self.twin(halfedge);
+    let b1 = self.next(b0);
+    let b2 = self.next(b1);
+  
+    let fa = self.face(a0);
+    let fb = self.face(b0);
+  
+    let va1 = self.vertex(a1);
+    let vb1 = self.vertex(b1);
+  
+    let va0 = self.vertex(a0);
+    let vb0 = self.vertex(b0);
+  
+    if self.edge_of_face(fb) == b1 {
+      self.set_edge_of_face(fb, a1);
+    }
+  
+    if self.edge_of_face(fa) == a1 {
+      self.set_edge_of_face(fa, b1);
+    }
+  
+    // TODO: maybe without if, just do it? its faster?
+    assert_eq!(self.vertex(b2), va0);
+    assert_eq!(self.vertex(a2), vb0);
+  
+  
+    if self.edge_of_vertex(va0) == a0 {
+      self.set_edge_of_vertex(va0, b2);
+    }
+  
+    if self.edge_of_vertex(vb0) == b0 {
+      self.set_edge_of_vertex(vb0, a2);
+    }
+  
+    self.set_edge_of_vertex(a0, va1);
+    self.set_vertex(b0, vb1);
+  
+    self.set_next(a0, a2);
+    self.set_next(a2, b1);
+    self.set_next(b1, a0);
+  
+    self.set_next(b0, b2);
+    self.set_next(b2, a1);
+    self.set_next(a1, b0);
+  
+    self.set_face(a1, fb);
+    self.set_face(b1, fa);
+  }
+  
+  pub fn legalize(&mut self, edge: usize) {
+    if self.is_illegal(edge) {
+      let twin = self.twin(edge);
+      let p = self.vertex(self.next(edge));
+  
+      self.flip(edge);
+  
+      let vertex = self.vertex(edge);
+  
+      if vertex == p {
+        let e1 = self.prev(edge);
+        let e2 = self.next(self.twin(twin));
+        self.legalize(e1);
+        self.legalize(e2);
+      }
+      else {
+        let e1 = self.next(edge);
+        let e2 = self.prev(self.twin(edge));
+        self.legalize(e1);
+        self.legalize(e2);
+      }
+    }
+  }
+  
+  pub fn is_illegal(&self, a: usize) -> bool {
+    let b: usize = self.twin(a);
+  
+    // if the pair of triangles doesn't satisfy the Delaunay condition
+    // (p1 is inside the circumcircle of [p0, pl, pr]), flip them,
+    // then do the same check/flip recursively for the new pair of triangles
+    //
+    //           pl                    pl
+    //          /||\                  /  \
+    //       al/ || \bl            al/    \bl
+    //        /  ||  \              /      \
+    //       /  a||b  \    flip    /___a___\
+    //     p0\   ||   /p1   =>   p0\---b---/p1
+    //        \  ||  /              \      /
+    //       ar\ || /br             ar\    /br
+    //          \||/                  \  /
+    //           pr                    pr
+    //
+    let ar = self.prev(a);
+  
+    if self.is_border(b) {
+        return false;
+    }
+  
+    let al = self.next(a);
+    let bl = self.prev(b);
+    let br = self.next(b);
+  
+    let p0 = self.point_of_edge(al);
+    let pr = self.point_of_edge(ar);
+    let pl = self.point_of_edge(bl);
+    let p1 = self.point_of_edge(br);
+    // TODO: is the order right?
+    let in_circ = p0.in_circle(pr, p1, pl);
+    in_circ
+  }
 }
-
-/*pub fn set_twin(halfedge: Halfedge, twin: Halfedge) {
-  halfedge.twin = twin;
-
-}*/
 
 #[derive(Debug, PartialEq)]
 pub enum FaceType {
@@ -497,5 +633,62 @@ impl Vertex {
 
   pub fn new(id: usize, halfedge: usize, point: Point) -> Self {
     Self {id, halfedge, point}
+  }
+}
+
+mod testing {
+  use super::*;
+  use crate::geometry::equiliteral_triangle;
+
+  #[test]
+  fn simple_face_iteration() {
+    let p = Point {x: 5.0, y: -1.0};
+    assert!(p.in_circle(&Point {x: 0.0, y: 0.0}, &Point {x:10.0, y: 0.0}, &Point {x: 5.0, y: 1.0}));
+    
+    let mut mesh = Mesh::triangle(Point {x: 0.0, y: 0.0}, Point {x:10.0, y: 0.0}, Point {x: 5.0, y: 1.0});
+    let halfedge = mesh.find_visible_edge(&p).unwrap();
+    assert!(mesh.iter_edges().count() == 6);
+    
+    mesh.insert(halfedge, p);
+    assert!(mesh.is_illegal(halfedge));
+    assert!(mesh.iter_face(mesh.boundary()).map(|halfedge| mesh.point_of_edge(halfedge)).any(|u| u.x == 5.0 && u.y == -1.0));
+    assert!(mesh.iter_edges().count() == 10);
+    assert!(mesh.iter_edges().any(|halfedge| mesh.is_illegal(halfedge)));
+    
+    mesh.legalize(halfedge);
+    assert!(mesh.iter_edges().all(|halfedge| !mesh.is_illegal(halfedge)));
+  }
+
+  #[test]
+  fn test_simple_face_iteration() {
+    let (p1, p2, p3) = equiliteral_triangle(1.0);
+
+    let mesh = Mesh::triangle(Point {x: p1.x, y: p1.y}, Point {x: p2.x, y: p2.y}, Point {x: p3.x, y: p3.y});
+    
+    assert!(mesh.iter_face(mesh.boundary()).map(|halfedge| mesh.point_of_edge(halfedge)).any(|p| p.x == p1.x && p.y == p1.y));
+    assert!(mesh.iter_face(mesh.boundary()).map(|halfedge| mesh.point_of_edge(halfedge)).any(|p| p.x == p2.x && p.y == p2.y));
+    assert!(mesh.iter_face(mesh.boundary()).map(|halfedge| mesh.point_of_edge(halfedge)).any(|p| p.x == p3.x && p.y == p3.y));
+    assert!(mesh.iter_face(mesh.boundary()).map(|halfedge| mesh.point_of_edge(halfedge)).count() == 3);
+  }
+
+  #[test]
+  fn test_simple_edge_iteration() {
+    let (p1, p2, p3) = equiliteral_triangle(1.0);
+    let mesh = Mesh::triangle(p1, p2, p3);
+    assert!(mesh.iter_edges().count() == 6);
+  }
+
+  #[test]
+  fn test_simple_faces_iteration() {
+    let (p1, p2, p3) = equiliteral_triangle(1.0);
+    let mesh = Mesh::triangle(p1, p2, p3);
+    assert!(mesh.iter_faces().count() == 1);
+  }
+
+  #[test]
+  fn test_simple_vertex_iteration() {
+    let (p1, p2, p3) = equiliteral_triangle(1.0);
+    let mesh = Mesh::triangle(p1, p2, p3);
+    assert!(mesh.iter_vertices().count() == 3);
   }
 }
