@@ -201,82 +201,6 @@ impl Mesh {
     HalfedgeIterator::new(self)
   }
 
-  fn empty() -> Self {
-    let mut mesh = Mesh {faces: Vec::new(), holes: Vec::new(), halfedges: Vec::new(), vertices: Vec::new(), boundary: EMPTY};
-    mesh.create_face(FaceType::Boundary);
-    mesh
-  }
-
-  fn create_vertex(&mut self, u: Point) -> usize {
-    let id = self.vertices.len();
-    let vertex = Vertex::empty(id, u);
-    self.vertices.push(vertex);
-    id
-  }
-  
-  pub fn create_halfedge(&mut self, vertex: usize, face: Option<usize>) -> usize {
-    debug_assert!(self.vertices.len() > vertex);
-    let id = self.halfedges.len();
-    let mut halfedge = Halfedge::empty(id);
-    halfedge.end = vertex;
-    halfedge.face = face.unwrap_or(EMPTY);
-    self.halfedges.push(halfedge);
-    id
-  }
-
-  pub fn set_edge_of_vertex(&mut self, vertex: usize, halfedge: usize) {
-    debug_assert!(self.vertices.len() > vertex);
-    self.vertices[vertex].halfedge = halfedge;
-  }
-
-  pub fn set_vertex(&mut self, halfedge: usize, vertex: usize) {
-    debug_assert!(self.halfedges.len() > halfedge);
-    self.halfedges[halfedge].end = vertex;
-  }
-
-  pub fn set_face(&mut self, halfedge: usize, face: usize) {
-    debug_assert!(self.halfedges.len() > halfedge);
-    self.halfedges[halfedge].face = face;
-  }
-
-  pub fn set_cycle(&mut self, a: usize, b: usize, c: usize) {
-    self.set_next(a, b);
-    self.set_next(b, c);
-    self.set_next(c, a);
-
-    self.set_prev(a, c);
-    self.set_prev(b, a);
-    self.set_prev(c, b);
-  }
-
-  pub fn set_cycle_and_twins(&mut self, a: usize, b: usize, c: usize, ta: usize, tb: usize, tc: usize) {
-    self.set_cycle(a, b, c);
-    self.set_cycle(ta, tc, tb);
-    self.set_twins(a, ta);
-    self.set_twins(b,tb);
-    self.set_twins(c,tc);
-  }
-
-  pub fn set_twins(&mut self, a: usize, b: usize) {
-    self.set_twin(a,b);
-    self.set_twin(b, a);
-  }
-
-  pub fn set_next(&mut self, halfedge: usize, next: usize) {
-    debug_assert!(self.halfedges.len() > halfedge);
-    self.halfedges[halfedge].next = next;
-  }
-
-  pub fn set_twin(&mut self, halfedge: usize, twin: usize) {
-    debug_assert!(self.halfedges.len() > halfedge);
-    self.halfedges[halfedge].twin = twin;
-  }
-
-  pub fn set_prev(&mut self, halfedge: usize, prev: usize) {
-    debug_assert!(self.halfedges.len() > halfedge);
-    self.halfedges[halfedge].prev = prev;
-  }
-
   pub fn insert(&mut self, halfedge: usize, p: Point) -> usize {
     debug_assert!(self.halfedges.len() > halfedge);
     debug_assert!(
@@ -327,20 +251,65 @@ impl Mesh {
     t2
   }
 
-  pub fn create_face(&mut self, face_type: FaceType) -> usize {
-    let id = self.faces.len();
-    match face_type {
-      FaceType::Hole => self.holes.push(id),
-      FaceType::Boundary => {
-        assert!(self.boundary == EMPTY);
-        self.boundary = id
-      },
-      _ => {}
-    };
-
-    let face = Face::new(id, EMPTY, face_type);
-    self.faces.push(face);
-    id
+  pub fn legalize(&mut self, edge: usize) {
+    if self.is_illegal(edge) {
+      let twin = self.twin(edge);
+      let p = self.vertex(self.next(edge));
+  
+      self.flip(edge);
+  
+      let vertex = self.vertex(edge);
+  
+      if vertex == p {
+        let e1 = self.prev(edge);
+        let e2 = self.next(self.twin(twin));
+        self.legalize(e1);
+        self.legalize(e2);
+      }
+      else {
+        let e1 = self.next(edge);
+        let e2 = self.prev(self.twin(edge));
+        self.legalize(e1);
+        self.legalize(e2);
+      }
+    }
+  }
+  
+  pub fn is_illegal(&self, a: usize) -> bool {
+    let b: usize = self.twin(a);
+  
+    // if the pair of triangles doesn't satisfy the Delaunay condition
+    // (p1 is inside the circumcircle of [p0, pl, pr]), flip them,
+    // then do the same check/flip recursively for the new pair of triangles
+    //
+    //           pl                    pl
+    //          /||\                  /  \
+    //       al/ || \bl            al/    \bl
+    //        /  ||  \              /      \
+    //       /  a||b  \    flip    /___a___\
+    //     p0\   ||   /p1   =>   p0\---b---/p1
+    //        \  ||  /              \      /
+    //       ar\ || /br             ar\    /br
+    //          \||/                  \  /
+    //           pr                    pr
+    //
+    let ar = self.prev(a);
+  
+    if self.is_border(b) {
+        return false;
+    }
+  
+    let al = self.next(a);
+    let bl = self.prev(b);
+    let br = self.next(b);
+  
+    let p0 = self.point_of_edge(al);
+    let pr = self.point_of_edge(ar);
+    let pl = self.point_of_edge(bl);
+    let p1 = self.point_of_edge(br);
+    // TODO: is the order right?
+    let in_circ = p0.in_circle(pr, p1, pl);
+    in_circ
   }
 
   pub fn boundary(&self) -> usize {
@@ -367,6 +336,12 @@ impl Mesh {
     self.halfedges[halfedge].face
   }
 
+  pub fn vertex(&self, halfedge: usize) -> usize {
+    debug_assert!(halfedge != EMPTY);
+    debug_assert!(self.halfedges.len() > halfedge);
+    self.halfedges[halfedge].end
+  }
+
   pub fn is_border(&self, halfedge: usize) -> bool {
     debug_assert!(halfedge != EMPTY);
     let face = self.face(halfedge);
@@ -380,33 +355,19 @@ impl Mesh {
     self.vertices[vertex].halfedge
   }
 
-  pub fn vertex(&self, halfedge: usize) -> usize {
-    debug_assert!(halfedge != EMPTY);
-    debug_assert!(self.halfedges.len() > halfedge);
-    self.halfedges[halfedge].end
-  }
-
   pub fn edge_of_face(&self, face: usize) -> usize {
     debug_assert!(face != EMPTY);
     self.faces[face].halfedge
   }
 
-  pub fn set_edge_of_face(&mut self, face: usize, halfedge: usize) {
-    debug_assert!(face != EMPTY);
-    self.faces[face].halfedge = halfedge;
-  }
-
-  pub fn set_face_of_edge(&mut self, halfedge: usize, face: usize) {
-    debug_assert!(halfedge != EMPTY);
-    self.halfedges[halfedge].face = face;
-  }
-
+  //TODO: critical since we allow the point to be manipulated?
   pub fn point_of_vertex(&self, vertex: usize) -> &Point {
     debug_assert!(vertex != EMPTY);
     debug_assert!(self.vertices.len() > vertex);
     &self.vertices[vertex].point
   }
 
+  //TODO: critical since we allow the point to be manipulated?
   pub fn point_of_edge(&self, halfedge: usize) -> &Point {
     self.point_of_vertex(self.vertex(halfedge))
   }
@@ -435,6 +396,108 @@ impl Mesh {
       }
     }
     None
+  }
+
+  fn empty() -> Self {
+    let mut mesh = Mesh {faces: Vec::new(), holes: Vec::new(), halfedges: Vec::new(), vertices: Vec::new(), boundary: EMPTY};
+    mesh.create_face(FaceType::Boundary);
+    mesh
+  }
+
+  fn create_vertex(&mut self, u: Point) -> usize {
+    let id = self.vertices.len();
+    let vertex = Vertex::empty(id, u);
+    self.vertices.push(vertex);
+    id
+  }
+  
+  fn create_halfedge(&mut self, vertex: usize, face: Option<usize>) -> usize {
+    debug_assert!(self.vertices.len() > vertex);
+    let id = self.halfedges.len();
+    let mut halfedge = Halfedge::empty(id);
+    halfedge.end = vertex;
+    halfedge.face = face.unwrap_or(EMPTY);
+    self.halfedges.push(halfedge);
+    id
+  }
+
+  fn set_edge_of_vertex(&mut self, vertex: usize, halfedge: usize) {
+    debug_assert!(self.vertices.len() > vertex);
+    self.vertices[vertex].halfedge = halfedge;
+  }
+
+  fn set_vertex(&mut self, halfedge: usize, vertex: usize) {
+    debug_assert!(self.halfedges.len() > halfedge);
+    self.halfedges[halfedge].end = vertex;
+  }
+
+  fn set_face(&mut self, halfedge: usize, face: usize) {
+    debug_assert!(self.halfedges.len() > halfedge);
+    self.halfedges[halfedge].face = face;
+  }
+
+  fn set_cycle(&mut self, a: usize, b: usize, c: usize) {
+    self.set_next(a, b);
+    self.set_next(b, c);
+    self.set_next(c, a);
+
+    self.set_prev(a, c);
+    self.set_prev(b, a);
+    self.set_prev(c, b);
+  }
+
+  fn set_cycle_and_twins(&mut self, a: usize, b: usize, c: usize, ta: usize, tb: usize, tc: usize) {
+    self.set_cycle(a, b, c);
+    self.set_cycle(ta, tc, tb);
+    self.set_twins(a, ta);
+    self.set_twins(b,tb);
+    self.set_twins(c,tc);
+  }
+
+  fn set_twins(&mut self, a: usize, b: usize) {
+    self.set_twin(a,b);
+    self.set_twin(b, a);
+  }
+
+  fn set_next(&mut self, halfedge: usize, next: usize) {
+    debug_assert!(self.halfedges.len() > halfedge);
+    self.halfedges[halfedge].next = next;
+  }
+
+  fn set_twin(&mut self, halfedge: usize, twin: usize) {
+    debug_assert!(self.halfedges.len() > halfedge);
+    self.halfedges[halfedge].twin = twin;
+  }
+
+  fn set_prev(&mut self, halfedge: usize, prev: usize) {
+    debug_assert!(self.halfedges.len() > halfedge);
+    self.halfedges[halfedge].prev = prev;
+  }
+
+  fn create_face(&mut self, face_type: FaceType) -> usize {
+    let id = self.faces.len();
+    match face_type {
+      FaceType::Hole => self.holes.push(id),
+      FaceType::Boundary => {
+        assert!(self.boundary == EMPTY);
+        self.boundary = id
+      },
+      _ => {}
+    };
+
+    let face = Face::new(id, EMPTY, face_type);
+    self.faces.push(face);
+    id
+  }
+
+  fn set_edge_of_face(&mut self, face: usize, halfedge: usize) {
+    debug_assert!(face != EMPTY);
+    self.faces[face].halfedge = halfedge;
+  }
+
+  fn set_face_of_edge(&mut self, halfedge: usize, face: usize) {
+    debug_assert!(halfedge != EMPTY);
+    self.halfedges[halfedge].face = face;
   }
 
   fn flip(&mut self, halfedge: usize) {
@@ -508,71 +571,10 @@ impl Mesh {
     self.set_face(a1, fb);
     self.set_face(b1, fa);
   }
-  
-  pub fn legalize(&mut self, edge: usize) {
-    if self.is_illegal(edge) {
-      let twin = self.twin(edge);
-      let p = self.vertex(self.next(edge));
-  
-      self.flip(edge);
-  
-      let vertex = self.vertex(edge);
-  
-      if vertex == p {
-        let e1 = self.prev(edge);
-        let e2 = self.next(self.twin(twin));
-        self.legalize(e1);
-        self.legalize(e2);
-      }
-      else {
-        let e1 = self.next(edge);
-        let e2 = self.prev(self.twin(edge));
-        self.legalize(e1);
-        self.legalize(e2);
-      }
-    }
-  }
-  
-  pub fn is_illegal(&self, a: usize) -> bool {
-    let b: usize = self.twin(a);
-  
-    // if the pair of triangles doesn't satisfy the Delaunay condition
-    // (p1 is inside the circumcircle of [p0, pl, pr]), flip them,
-    // then do the same check/flip recursively for the new pair of triangles
-    //
-    //           pl                    pl
-    //          /||\                  /  \
-    //       al/ || \bl            al/    \bl
-    //        /  ||  \              /      \
-    //       /  a||b  \    flip    /___a___\
-    //     p0\   ||   /p1   =>   p0\---b---/p1
-    //        \  ||  /              \      /
-    //       ar\ || /br             ar\    /br
-    //          \||/                  \  /
-    //           pr                    pr
-    //
-    let ar = self.prev(a);
-  
-    if self.is_border(b) {
-        return false;
-    }
-  
-    let al = self.next(a);
-    let bl = self.prev(b);
-    let br = self.next(b);
-  
-    let p0 = self.point_of_edge(al);
-    let pr = self.point_of_edge(ar);
-    let pl = self.point_of_edge(bl);
-    let p1 = self.point_of_edge(br);
-    // TODO: is the order right?
-    let in_circ = p0.in_circle(pr, p1, pl);
-    in_circ
-  }
 }
 
 #[derive(Debug, PartialEq)]
-pub enum FaceType {
+enum FaceType {
   Normal, 
   Hole, 
   Boundary,
@@ -591,11 +593,11 @@ struct Halfedge {
 
 impl Halfedge {
 
-  pub fn empty(id: usize) -> Self {
+  fn empty(id: usize) -> Self {
     Self {id, end: EMPTY, next: EMPTY, prev: EMPTY, twin: EMPTY, face: EMPTY}
   }
 
-  pub fn is_valid(&self) -> bool {
+  fn is_valid(&self) -> bool {
     self.next != EMPTY && self.prev != EMPTY && self.face != EMPTY
   }
 }
@@ -609,11 +611,11 @@ struct Face {
 
 impl Face {
 
-  pub fn empty(id: usize) -> Self {
+  fn empty(id: usize) -> Self {
     Self {id, halfedge: EMPTY, face_type: FaceType::Normal}
   }
 
-  pub fn new(id: usize, edge: usize, face_type: FaceType) -> Self {
+  fn new(id: usize, edge: usize, face_type: FaceType) -> Self {
     Self {id, halfedge: edge, face_type: face_type}
   }
 }
@@ -631,7 +633,7 @@ impl Vertex {
     Self {id, halfedge: EMPTY, point}
   }
 
-  pub fn new(id: usize, halfedge: usize, point: Point) -> Self {
+  fn new(id: usize, halfedge: usize, point: Point) -> Self {
     Self {id, halfedge, point}
   }
 }
