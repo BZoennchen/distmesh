@@ -1,6 +1,5 @@
-use distmesh::Point;
-use distmesh::geometry::equiliteral_triangle;
-use distmesh::prelude::*;
+use meshing::geometry::Point;
+use meshing::geometry::equiliteral_triangle;
 
 pub fn main() {
   /*let (p1, p2, p3) = equiliteral_triangle(100.0);

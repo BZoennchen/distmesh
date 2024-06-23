@@ -1,0 +1,1 @@
+This is a ``Rust`` implementation of the [half-edge data structure](https://www.flipcode.com/archives/The_Half-Edge_Data_Structure.shtml) known to be used in [computational geometry](https://en.wikipedia.org/wiki/Computational_geometry).

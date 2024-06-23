@@ -1,11 +1,17 @@
 # DistMesh-rs
 
 A Rust library for the generaiton of high-quality unstructured 2D meshes.
-A port of [``DistMesh``](http://persson.berkeley.edu/distmesh/) by Persson and Strang with improvements introduced by [myself](https://mediatum.ub.tum.de/1593965?style=full_standard) under the name [EikMesh](https://www.sciencedirect.com/science/article/pii/S1877750318303193).
+This includes two packages:
+
++ ``meshing``: A ``Rust``implementation of the [half-edge data structure](https://www.flipcode.com/archives/The_Half-Edge_Data_Structure.shtml)
++ ``distmesh``: a port of [``DistMesh``](http://persson.berkeley.edu/distmesh/) by Persson and Strang with improvements introduced by [myself](https://mediatum.ub.tum.de/1593965?style=full_standard) under the name [EikMesh](https://www.sciencedirect.com/science/article/pii/S1877750318303193).
+
+At the current stage ``distmesh`` relies on the ``delaunator`` crate and works independent of ``meshing``.
+However, this will change soon if ``meshing`` is ready.
 
 ## Documentation
 
-## Example
+## Distmesh Examples
 
 ```rust
 use distmesh::prelude::*;
