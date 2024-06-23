@@ -1,6 +1,6 @@
 use core::{cmp::Ordering, f64, fmt};
 use robust::orient2d;
-use crate::mesh::mesh::{EMPTY, Mesh};
+use crate::mesh::{EMPTY, Mesh};
 
 pub const EPSILON: f64 = f64::EPSILON * 2.0;
 
@@ -54,14 +54,14 @@ fn flip(mesh: &mut Mesh, halfedge: usize) {
 
 
   if mesh.edge_of_vertex(va0) == a0 {
-    mesh.set_halfedge(va0, b2);
+    mesh.set_edge_of_vertex(va0, b2);
   }
 
   if mesh.edge_of_vertex(vb0) == b0 {
-    mesh.set_halfedge(vb0, a2);
+    mesh.set_edge_of_vertex(vb0, a2);
   }
 
-  mesh.set_halfedge(a0, va1);
+  mesh.set_edge_of_vertex(a0, va1);
   mesh.set_vertex(b0, vb1);
 
   mesh.set_next(a0, a2);
@@ -171,6 +171,23 @@ fn find_closest_point(points: &[Point], p0: &Point) -> Option<usize> {
   }
 }
 
+pub trait DSPoint {
+  fn subtract(&self, other: &Self) -> Self;
+  fn add(&self, other: &Self) -> Self;
+  fn add_mut(&mut self, other: &Self);
+  fn subtract_mut(&mut self, other: &Self);
+  fn mult(&self, scalar: f64) -> Self;
+  fn div(&self, scalar: f64) -> Self;
+  fn center(&self, other: &Self) -> Self;
+  fn len(&self) -> f64;
+  fn len_sq(&self) -> f64;
+  fn norm(&self) -> Self;
+  fn distance(&self, other: &Self) -> f64;
+  fn distance_sq(&self, other: &Self) -> f64;
+  fn x(&self) -> f64;
+  fn y(&self) -> f64;
+}
+
 #[derive(Clone, PartialEq, Default)]
 pub struct Point {
     pub x: f64,
@@ -195,11 +212,73 @@ impl From<&Point> for robust::Coord<f64> {
     }
 }
 
+impl DSPoint for Point {
+  fn distance_sq(&self, other: &Self) -> f64 {
+    self.subtract(other).len_sq()
+  }
+
+  fn distance(&self, other: &Self) -> f64 {
+    self.distance_sq(other).sqrt()
+  }
+
+  fn norm(&self) -> Self {
+    self.div(self.len())
+  }
+
+  fn mult(&self, scalar: f64) -> Self {
+    Point {x: self.x * scalar, y: self.y * scalar}
+  }
+
+  fn div(&self, scalar: f64) -> Self {
+    Point {x: self.x / scalar, y: self.y / scalar}
+  }
+
+  fn len_sq(&self) -> f64 {
+    self.x * self.x + self.y * self.y
+  }
+
+  fn len(&self) -> f64 {
+    self.len_sq().sqrt()
+  }
+
+  fn subtract(&self, other: &Self) -> Self {
+    Point {x: self.x - other.x, y: self.y - other.y}
+  }
+
+  fn subtract_mut(&mut self, other: &Self) {
+    self.x -= other.x;
+    self.y -= other.y;
+  }
+
+  fn add(&self, other: &Self) -> Self {
+    Point {x: self.x + other.x, y: self.y + other.y}
+  }
+
+  fn add_mut(&mut self, other: &Self) {
+    self.x += other.x;
+    self.y += other.y;
+  }
+
+  fn center(&self, other: &Self) -> Self {
+    let du = other.subtract(&self).mult(0.5);
+    self.add(&du)
+  }
+
+  fn x(&self) -> f64 {
+        self.x
+    }
+
+  fn y(&self) -> f64 {
+    self.y
+  }
+}
+
 impl Point {
+
   fn dist2(&self, p: &Self) -> f64 {
-      let dx = self.x - p.x;
-      let dy = self.y - p.y;
-      dx * dx + dy * dy
+    let dx = self.x - p.x;
+    let dy = self.y - p.y;
+    dx * dx + dy * dy
   }
 
   /// Returns a **negative** value if ```self```, ```q``` and ```r``` occur in counterclockwise order (```r``` is to the left of the directed line ```self``` --> ```q```)
@@ -211,18 +290,18 @@ impl Point {
   }
 
   fn circumdelta(&self, b: &Self, c: &Self) -> (f64, f64) {
-      let dx = b.x - self.x;
-      let dy = b.y - self.y;
-      let ex = c.x - self.x;
-      let ey = c.y - self.y;
+    let dx = b.x - self.x;
+    let dy = b.y - self.y;
+    let ex = c.x - self.x;
+    let ey = c.y - self.y;
 
-      let bl = dx * dx + dy * dy;
-      let cl = ex * ex + ey * ey;
-      let d = 0.5 / (dx * ey - dy * ex);
+    let bl = dx * dx + dy * dy;
+    let cl = ex * ex + ey * ey;
+    let d = 0.5 / (dx * ey - dy * ex);
 
-      let x = (ey * bl - dy * cl) * d;
-      let y = (dx * cl - ex * bl) * d;
-      (x, y)
+    let x = (ey * bl - dy * cl) * d;
+    let y = (dx * cl - ex * bl) * d;
+    (x, y)
   }
 
   fn circumradius2(&self, b: &Self, c: &Self) -> f64 {
@@ -268,7 +347,7 @@ pub fn equiliteral_triangle(seg_len: f64) -> (Point, Point, Point) {
 }
 
 pub fn find_visible_edge(mesh: &Mesh, p: &Point) -> usize {
-  for halfedge in mesh.iter_face(mesh.boundary) {
+  for halfedge in mesh.iter_face(mesh.boundary()) {
     let u2 = mesh.point_of_edge(halfedge);
     let u1 = mesh.point_of_edge(mesh.twin(halfedge));
     if p.orient(u1, u2) <= 0. {
@@ -276,4 +355,69 @@ pub fn find_visible_edge(mesh: &Mesh, p: &Point) -> usize {
     }
   }
   panic!("Unable to find a visible edge for point {p}");
+}
+
+/// Returns the average quality of triangles which is a metric for the quality of a triangular mesh.
+///
+/// # Arguments
+/// 
+/// * `points` - The slice of points of the triangulation
+/// * `triangles` - Indices of triangles where three consecutive indices form a triangle
+/// 
+/// # Examples
+/// 
+/// ```
+/// use distmesh::quality::avg_quality;
+/// use delaunator::{Point, triangulate};
+/// 
+/// let points = vec![
+///        Point { x: 0., y: 0. },
+///        Point { x: 1., y: 0. },
+///        Point { x: 1., y: 1. },
+///        Point { x: 0., y: 1. },
+///    ]; 
+///    let result = triangulate(&points);
+/// let quality = avg_quality(&points, &result.triangles);
+/// assert!(quality > 0.8);
+/// ```
+pub fn avg_quality(points: &[Point], triangles: &[usize]) -> f64 {
+  let ntriagnles = triangles.len() / 3;
+  let mut avg_quality = 0.0;
+
+  for i in 0..ntriagnles {
+    let index = i * 3;
+    let u1 = &points[triangles[index]];
+    let u2 = &points[triangles[index+1]];
+    let u3 = &points[triangles[index+2]];
+    avg_quality += quality(u1, u2, u3);
+
+  }
+
+  avg_quality / ntriagnles as f64
+}
+
+/// Returns the quality of a triangle. This measurement is a metric for the quality of a triangular mesh.
+///
+/// # Arguments
+/// 
+/// * `u1` - The first point of the triangle
+/// * `u2` - The second point of the triangle
+/// * `u3` - The third point of the triangle
+/// 
+/// # Examples
+/// 
+/// ```
+/// use distmesh::quality::quality;
+/// use delaunator::{Point};
+/// 
+/// let u1 = Point {x: 0.0, y:0.0};
+/// let u2 = Point {x: 1.0, y:0.0};
+/// let u3 = Point {x: 0.5, y:f64::sqrt(3.0)/2.0};
+/// assert!(quality(&u1, &u2, &u3) > 0.99);
+/// ```
+pub fn quality(u1: &Point, u2: &Point, u3: &Point) -> f64 {
+    let a = u1.distance(u2);
+    let b = u1.distance(u3);
+    let c = u2.distance(u3);
+    ((b + c - a) * (c + a - b) * (a + b - c)) / (a * b * c)
 }

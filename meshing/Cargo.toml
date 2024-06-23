@@ -1,0 +1,8 @@
+[package]
+name = "meshing"
+version = "0.1.0"
+edition = "2021"
+authors = ["BZoennchen <benedikt.zoennchen@web.de>"]
+
+[dependencies]
+robust = "1.1.0"

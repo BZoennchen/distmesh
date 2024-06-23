@@ -1,6 +1,4 @@
-use std::{any::Any, slice::Iter};
-
-use crate::triangulator::Point;
+use crate::geometry::Point;
 
 pub const EMPTY: usize = usize::MAX;
 
@@ -10,23 +8,8 @@ pub struct Mesh {
   holes: Vec<usize>,
   halfedges: Vec<Halfedge>,
   vertices: Vec<Vertex>,
-  pub boundary: usize,
+  boundary: usize,
 }
-
-/*impl Iterator for Mesh {
-  type Item = usize;
-  
-  fn next(&mut self) -> Option<Self::Item> {
-    match self.some_face() {
-      None => return None,
-      Some(face) => {
-        let halfedge = self.faces[face].halfedge;
-
-        return Some(1)
-      }
-    };    
-  }
-}*/
 
 pub struct FaceIterator<'a> {
   mesh: &'a Mesh,
@@ -187,40 +170,17 @@ impl Mesh {
     let halfedge1 = mesh.create_halfedge(v1, Some(inner_face));
     let halfedge2 = mesh.create_halfedge(v2, Some(inner_face));
     let halfedge3 = mesh.create_halfedge(v3, Some(inner_face));
-    mesh.set_halfedge(v1, halfedge1);
-    mesh.set_halfedge(v2, halfedge2);
-    mesh.set_halfedge(v3, halfedge3);
-    mesh.faces[inner_face].halfedge = halfedge1;
-
-    mesh.halfedges[halfedge1].next = halfedge2;
-    mesh.halfedges[halfedge2].next = halfedge3;
-    mesh.halfedges[halfedge3].next = halfedge1;
-
-    mesh.halfedges[halfedge1].prev = halfedge3;
-    mesh.halfedges[halfedge2].prev = halfedge1;
-    mesh.halfedges[halfedge3].prev = halfedge2;
+    mesh.set_edge_of_vertex(v1, halfedge1);
+    mesh.set_edge_of_vertex(v2, halfedge2);
+    mesh.set_edge_of_vertex(v3, halfedge3);
+    mesh.set_edge_of_face(inner_face, halfedge1);
 
     let twin1 = mesh.create_halfedge(v3, Some(mesh.boundary));
     let twin2 = mesh.create_halfedge(v1, Some(mesh.boundary));
     let twin3 = mesh.create_halfedge(v2, Some(mesh.boundary));
-    mesh.faces[mesh.boundary].halfedge = twin1;
-
-    mesh.halfedges[twin1].next = twin3;
-    mesh.halfedges[twin2].next = twin1;
-    mesh.halfedges[twin3].next = twin2;
-
-    mesh.halfedges[twin1].prev = twin2;
-    mesh.halfedges[twin2].prev = twin3;
-    mesh.halfedges[twin3].prev = twin1;
-
-    mesh.halfedges[halfedge1].twin = twin1;
-    mesh.halfedges[halfedge2].twin = twin2;
-    mesh.halfedges[halfedge3].twin = twin3;
-
-    mesh.halfedges[twin1].twin = halfedge1;
-    mesh.halfedges[twin2].twin = halfedge2;
-    mesh.halfedges[twin3].twin = halfedge3;
-
+    mesh.set_edge_of_face(mesh.boundary, twin1);
+    
+    mesh.set_cycle_and_twins(halfedge1, halfedge2, halfedge3, twin1, twin2, twin3);
     mesh
   }
 
@@ -267,7 +227,7 @@ impl Mesh {
     id
   }
 
-  pub fn set_halfedge(&mut self, vertex: usize, halfedge: usize) {
+  pub fn set_edge_of_vertex(&mut self, vertex: usize, halfedge: usize) {
     debug_assert!(self.vertices.len() > vertex);
     self.vertices[vertex].halfedge = halfedge;
   }
@@ -280,6 +240,29 @@ impl Mesh {
   pub fn set_face(&mut self, halfedge: usize, face: usize) {
     debug_assert!(self.halfedges.len() > halfedge);
     self.halfedges[halfedge].face = face;
+  }
+
+  pub fn set_cycle(&mut self, a: usize, b: usize, c: usize) {
+    self.set_next(a, b);
+    self.set_next(b, c);
+    self.set_next(c, a);
+
+    self.set_prev(a, c);
+    self.set_prev(b, a);
+    self.set_prev(c, b);
+  }
+
+  pub fn set_cycle_and_twins(&mut self, a: usize, b: usize, c: usize, ta: usize, tb: usize, tc: usize) {
+    self.set_cycle(a, b, c);
+    self.set_cycle(ta, tc, tb);
+    self.set_twins(a, ta);
+    self.set_twins(b,tb);
+    self.set_twins(c,tc);
+  }
+
+  pub fn set_twins(&mut self, a: usize, b: usize) {
+    self.set_twin(a,b);
+    self.set_twin(b, a);
   }
 
   pub fn set_next(&mut self, halfedge: usize, next: usize) {
@@ -307,21 +290,22 @@ impl Mesh {
     let a = self.prev(halfedge);
     let b = self.next(halfedge);
     let border = self.face(halfedge);
-    if self.faces[border].halfedge == halfedge {
-      self.faces[border].halfedge = b;
+
+    if self.edge_of_face(border) == halfedge {
+      self.set_edge_of_face(border, b);
     }
 
     let face = self.create_face(FaceType::Normal);
     let v = self.create_vertex(p);
 
-    self.faces[face].halfedge = halfedge;
-    self.halfedges[halfedge].face = face;
+    self.set_edge_of_face(face, halfedge);
+    self.set_face_of_edge(halfedge, face);
 
     let e1 = self.create_halfedge(v, Some(face));
     let e2 = self.create_halfedge(self.vertex(a), Some(face));
     let t1 = self.create_halfedge(self.vertex(halfedge), Some(border));
     let t2 = self.create_halfedge(v, Some(border));
-    self.vertices[v].halfedge = e1;
+    self.set_edge_of_vertex(v, e1);
 
     self.set_next(halfedge, e1);
     self.set_next(e1, e2);
@@ -362,6 +346,10 @@ impl Mesh {
     id
   }
 
+  pub fn boundary(&self) -> usize {
+    self.boundary
+  }
+
   pub fn next(&self, halfedge: usize) -> usize {
     debug_assert!(halfedge != EMPTY);
     self.halfedges[halfedge].next
@@ -384,8 +372,8 @@ impl Mesh {
 
   pub fn is_border(&self, halfedge: usize) -> bool {
     debug_assert!(halfedge != EMPTY);
-    let face = self.halfedges[halfedge].face;
-    let twin_face = self.halfedges[self.twin(halfedge)].face;
+    let face = self.face(halfedge);
+    let twin_face = self.face(self.twin(halfedge));
     self.faces[face].face_type == FaceType::Boundary || self.faces[twin_face].face_type == FaceType::Hole
   }
 
@@ -411,6 +399,10 @@ impl Mesh {
     self.faces[face].halfedge = halfedge;
   }
 
+  pub fn set_face_of_edge(&mut self, halfedge: usize, face: usize) {
+    debug_assert!(halfedge != EMPTY);
+    self.halfedges[halfedge].face = face;
+  }
 
   pub fn point_of_vertex(&self, vertex: usize) -> &Point {
     debug_assert!(vertex != EMPTY);

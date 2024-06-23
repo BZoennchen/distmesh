@@ -1,7 +1,7 @@
-use crate::mesh::mesh::Mesh;
-use crate::triangulator::Point;
+use crate::mesh::Mesh;
+use crate::geometry::Point;
 
-pub fn to_tikz_string(mesh: &Mesh) -> String {
+pub fn to_tikz(mesh: &Mesh) -> String {
   let mut tikz: String = String::new();
 
   tikz.push_str(&preamble());
@@ -76,8 +76,6 @@ fn point_to_tikz(point: &Point) -> String {
 }
 
 fn edges_to_tikz(mesh: &Mesh) -> String {
-  //\draw[color=edgeColor1](-0.5075,0.8298) -- (-0.5266,0.8501);
-  // \draw[color=vertexColor1, fill=vertexColor1Fill](-0.5266,0.8501) circle (\circleSize);
   let mut tikz: String = String::new();
   for halfedge in mesh.iter_edges() {
     tikz.push_str(&halfedge_to_tikz(mesh, halfedge));

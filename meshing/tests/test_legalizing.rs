@@ -1,6 +1,6 @@
-use distmesh::triangulator::Point;
-use distmesh::triangulator::{find_visible_edge,legalize,is_illegal};
-use distmesh::prelude::*;
+use meshing::geometry::Point;
+use meshing::geometry::{find_visible_edge,legalize,is_illegal};
+use meshing::mesh::Mesh;
 
 #[test]
 fn simple_face_iteration() {
@@ -13,7 +13,7 @@ fn simple_face_iteration() {
   
   mesh.insert(halfedge, p);
   assert!(is_illegal(&mesh, halfedge));
-  assert!(mesh.iter_face(mesh.boundary).map(|halfedge| mesh.point_of_edge(halfedge)).any(|u| u.x == 5.0 && u.y == -1.0));
+  assert!(mesh.iter_face(mesh.boundary()).map(|halfedge| mesh.point_of_edge(halfedge)).any(|u| u.x == 5.0 && u.y == -1.0));
   assert!(mesh.iter_edges().count() == 10);
   assert!(mesh.iter_edges().any(|halfedge| is_illegal(&mesh, halfedge)));
   
